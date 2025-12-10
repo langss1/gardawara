@@ -1,7 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/splash_screen.dart';
 
-void main() {
+void main() async {
+  // 2. WAJIB: Tambahkan baris ini agar async bisa jalan sebelum runApp
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 3. Bungkus load env dengan try-catch agar kalau error ketahuan
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    print("Error loading .env file: $e");
+    // Lanjut jalan meski error agar tidak black screen selamanya
+  }
+
   runApp(const MyApp());
 }
 

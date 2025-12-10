@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:gardawara_ai/screens/chatbot_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -9,40 +10,31 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-
-
   bool isProtected = true;
-  bool hasData = true; 
+  bool hasData = true;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5), 
+      backgroundColor: const Color(0xFFF5F5F5),
       body: Stack(
         children: [
-
           _buildHeaderBackground(),
-
 
           SingleChildScrollView(
             child: Column(
               children: [
+                const SizedBox(height: 320),
 
-                const SizedBox(height: 320), 
-                
                 // Content Body
                 _buildContentBody(),
-                
+
                 const SizedBox(height: 80),
               ],
             ),
           ),
 
-          Positioned(
-            bottom: 20,
-            right: 20,
-            child: _buildChatBotButton(),
-          ),
+          Positioned(bottom: 20, right: 20, child: _buildChatBotButton()),
         ],
       ),
     );
@@ -50,34 +42,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildHeaderBackground() {
     return SizedBox(
-      height: 400, 
+      height: 400,
       width: double.infinity,
       child: Stack(
         fit: StackFit.expand,
         children: [
           // Map Image
           Image.asset(
-            isProtected 
-                ? 'assets/images/Peta_Unlocked.png' 
+            isProtected
+                ? 'assets/images/Peta_Unlocked.png'
                 : 'assets/images/Peta_Locked.png',
             fit: BoxFit.cover,
             alignment: Alignment.topCenter,
           ),
-          
 
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  Colors.black.withOpacity(0.3),
-                  Colors.transparent,
-                ],
+                colors: [Colors.black.withOpacity(0.3), Colors.transparent],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
               ),
             ),
           ),
-          
+
           Positioned(
             top: 60,
             left: 0,
@@ -85,8 +73,12 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               children: [
                 if (!isProtected) ...[
-                  const Icon(Icons.lock_open_rounded, color: Colors.white, size: 32),
-                   Text(
+                  const Icon(
+                    Icons.lock_open_rounded,
+                    color: Colors.white,
+                    size: 32,
+                  ),
+                  Text(
                     'Anda tidak terproteksi dari Judi',
                     style: GoogleFonts.leagueSpartan(
                       color: Colors.white,
@@ -96,7 +88,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   Container(
                     margin: const EdgeInsets.only(top: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black54,
                       borderRadius: BorderRadius.circular(20),
@@ -113,7 +108,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.verified_user_outlined, color: Colors.white, size: 28),
+                      const Icon(
+                        Icons.verified_user_outlined,
+                        color: Colors.white,
+                        size: 28,
+                      ),
                       const SizedBox(width: 8),
                       Text(
                         'Anda Terproteksi',
@@ -144,7 +143,10 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF00C9A7), Color(0xFF00897B)], // Green/Teal Gradient
+                colors: [
+                  Color(0xFF00C9A7),
+                  Color(0xFF00897B),
+                ], // Green/Teal Gradient
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
               ),
@@ -173,8 +175,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      isProtected 
-                          ? 'Perlindungan Aman' 
+                      isProtected
+                          ? 'Perlindungan Aman'
                           : 'Perlindungan Tidak Aktif',
                       style: GoogleFonts.leagueSpartan(
                         color: Colors.white.withOpacity(0.9),
@@ -263,9 +265,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                           Text(
-                            isProtected 
-                              ? 'Perlindungan Aman dengan AI Gardawara'
-                              : 'Segera Aktifkan Gardawara',
+                            isProtected
+                                ? 'Perlindungan Aman dengan AI Gardawara'
+                                : 'Segera Aktifkan Gardawara',
                             style: GoogleFonts.leagueSpartan(
                               fontSize: 12,
                               color: Colors.black54,
@@ -276,7 +278,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
-                
+
                 const SizedBox(height: 16),
                 Divider(color: Colors.black.withOpacity(0.1), thickness: 1.5),
                 const SizedBox(height: 16),
@@ -288,7 +290,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                
+
                 const SizedBox(height: 16),
 
                 // Content Area (List or Empty State)
@@ -299,7 +301,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     _buildEmptyStateProtected()
                 else
                   _buildEmptyStateUnprotected(),
-                  
+
                 if (isProtected && hasData) ...[
                   const SizedBox(height: 16),
                   Center(
@@ -314,7 +316,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
-                  )
+                  ),
                 ],
               ],
             ),
@@ -354,7 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-  
+
   Widget _buildEmptyStateProtected() {
     return Center(
       child: Column(
@@ -399,31 +401,32 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     return Column(
-      children: blockedSites.map((site) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                site['url']!,
-                style: GoogleFonts.leagueSpartan(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black87,
-                ),
+      children:
+          blockedSites.map((site) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    site['url']!,
+                    style: GoogleFonts.leagueSpartan(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  Text(
+                    site['time']!,
+                    style: GoogleFonts.leagueSpartan(
+                      fontSize: 12,
+                      color: Colors.black45,
+                    ),
+                  ),
+                ],
               ),
-              Text(
-                site['time']!,
-                style: GoogleFonts.leagueSpartan(
-                  fontSize: 12,
-                  color: Colors.black45,
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
+            );
+          }).toList(),
     );
   }
 
@@ -442,10 +445,18 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      child: const Icon(
-        Icons.smart_toy_rounded,
-        color: Colors.white,
-        size: 32,
+      child: GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const GardaChatScreen()),
+          );
+        },
+        child: const Icon(
+          Icons.smart_toy_rounded,
+          color: Colors.white,
+          size: 32,
+        ),
       ),
     );
   }
