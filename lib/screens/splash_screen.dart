@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
+import 'setup_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -13,22 +15,27 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    _navigateToHome();
+    _checkSetupStatus();
   }
 
-  _navigateToHome() async {
+  _checkSetupStatus() async {
     await Future.delayed(const Duration(seconds: 3));
+
+    final prefs = await SharedPreferences.getInstance();
+
+    bool isSetupDone = prefs.getBool('isProtected') ?? false;
+
+    Widget targetScreen =
+        isSetupDone ? const HomeScreen() : const SetupScreen();
+
     if (mounted) {
       Navigator.pushReplacement(
         context,
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 1200),
-          pageBuilder: (context, animation, secondaryAnimation) => const HomeScreen(),
+          pageBuilder: (context, animation, secondaryAnimation) => targetScreen,
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(
-              opacity: animation,
-              child: child,
-            );
+            return FadeTransition(opacity: animation, child: child);
           },
         ),
       );
@@ -43,15 +50,10 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Logo Section
-            Image.asset(
-              'assets/images/Logo_Garda.png',
-              width: 180, 
-            ),
-             
+            Image.asset('assets/images/Logo_Garda.png', width: 180),
+
             const SizedBox(height: 30),
-            
-            // Text Title
+
             Text(
               'Garda Wara',
               style: GoogleFonts.leagueSpartan(
@@ -61,10 +63,9 @@ class _SplashScreenState extends State<SplashScreen> {
                 letterSpacing: 0.5,
               ),
             ),
-            
+
             const SizedBox(height: 8),
-            
-            // Subtitle
+
             Text(
               'AI Blok Judi Online',
               style: GoogleFonts.leagueSpartan(

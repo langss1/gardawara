@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "631429160772",
+    "project_id": "gardawara-dd2fe",
+    "storage_bucket": "gardawara-dd2fe.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:631429160772:android:0c878eadb046000b36c111",
+        "android_client_info": {
+          "package_name": "com.example.gardawara_ai"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAZAFQpvPhK5iiitg4LMaMhFKfT6uuOY38"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
