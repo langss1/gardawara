@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'chatbot_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -9,124 +10,195 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-
-
-  bool isProtected = true;
-  bool hasData = true; 
+  // Logic default: False (Unprotected/Merah)
+  bool isProtected = false; 
+  bool hasData = false;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5), 
-      body: Stack(
-        children: [
+      backgroundColor: const Color(0xFFF5F5F5), // Light Gray background
+      floatingActionButton: _buildChatBotButton(),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // 1. Header Area (Map + Status)
+            _buildHeader(),
 
-          _buildHeaderBackground(),
-
-
-          SingleChildScrollView(
-            child: Column(
-              children: [
-
-                const SizedBox(height: 320), 
-                
-                // Content Body
-                _buildContentBody(),
-                
-                const SizedBox(height: 80),
-              ],
+            // 2. Content Body
+            // Move up to overlap with the header transition
+            Transform.translate(
+              offset: const Offset(0, -60), // Adjusted offset for smoother overlap
+              child: _buildContentBody(),
             ),
-          ),
-
-          Positioned(
-            bottom: 20,
-            right: 20,
-            child: _buildChatBotButton(),
-          ),
-        ],
+            
+            const SizedBox(height: 80), 
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildHeaderBackground() {
+  Widget _buildHeader() {
     return SizedBox(
-      height: 400, 
+      height: 550, // Slightly taller for better crop
       width: double.infinity,
       child: Stack(
-        fit: StackFit.expand,
         children: [
-          // Map Image
-          Image.asset(
-            isProtected 
-                ? 'assets/images/Peta_Unlocked.png' 
-                : 'assets/images/Peta_Locked.png',
-            fit: BoxFit.cover,
-            alignment: Alignment.topCenter,
-          ),
-          
-
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Colors.black.withOpacity(0.3),
-                  Colors.transparent,
-                ],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+          // Background Map
+          Positioned.fill(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 500),
+              layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
+                return Stack(
+                  fit: StackFit.expand, // FORCE FILL: Ensures map size never changes
+                  children: <Widget>[
+                    ...previousChildren,
+                    if (currentChild != null) currentChild,
+                  ],
+                );
+              },
+              child: Image.asset(
+                isProtected 
+                    ? 'assets/images/Peta_Locked.png' 
+                    : 'assets/images/Peta_Unlocked.png',
+                key: ValueKey<bool>(isProtected),
+                fit: BoxFit.cover,
+                alignment: Alignment.topCenter,
+                width: double.infinity, // Explicitly force full width
+                height: double.infinity, // Explicitly force full height
               ),
             ),
           ),
           
+          // Gradients Logic
+          // Top Gradient (Red for Unprotected, Green for Protected)
           Positioned(
-            top: 60,
+            top: 0,
             left: 0,
             right: 0,
-            child: Column(
-              children: [
-                if (!isProtected) ...[
-                  const Icon(Icons.lock_open_rounded, color: Colors.white, size: 32),
-                   Text(
-                    'Anda tidak terproteksi dari Judi',
-                    style: GoogleFonts.leagueSpartan(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Container(
-                    margin: const EdgeInsets.only(top: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '5700+ website judi ditemukan',
-                      style: GoogleFonts.leagueSpartan(
-                        color: Colors.white,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.verified_user_outlined, color: Colors.white, size: 28),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Anda Terproteksi',
-                        style: GoogleFonts.leagueSpartan(
+            height: 150,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 500),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    isProtected 
+                      ? const Color(0xFF00C9A7).withOpacity(0.8) 
+                      : Colors.red.withOpacity(0.8),
+                    Colors.transparent,
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+            ),
+          ),
+
+
+          // Bottom Gray Gradient (Fade into body content)
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 100, // Smoother fade
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFFF5F5F5).withOpacity(0.0),
+                    const Color(0xFFF5F5F5),
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+            ),
+          ),
+          
+          // Status Text & Icon
+          Positioned(
+            top: 50, // Moved up to touch the top gradient slightly
+            left: 0,
+            right: 0,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 500),
+              // FIX: Anchor children to the TOP so they don't jump vertically
+              layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
+                return Stack(
+                  alignment: Alignment.topCenter, 
+                  children: <Widget>[
+                    ...previousChildren,
+                    if (currentChild != null) currentChild,
+                  ],
+                );
+              },
+              transitionBuilder: (Widget child, Animation<double> animation) {
+                return FadeTransition(opacity: animation, child: child);
+              },
+              child: !isProtected
+                  ? Column(
+                      key: const ValueKey('unprotected'),
+                      children: [
+                        Image.asset(
+                          'assets/images/unlock.png',
+                          width: 40,
+                          height: 40,
                           color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
+                        const SizedBox(height: 8),
+                         Text(
+                          'Anda tidak terproteksi dari Judi',
+                          style: GoogleFonts.leagueSpartan(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            shadows: [
+                              const Shadow(
+                                offset: Offset(0, 1),
+                                blurRadius: 4.0,
+                                color: Colors.black45,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          margin: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '5700+ website judi ditemukan',
+                            style: GoogleFonts.leagueSpartan(
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      key: const ValueKey('protected'),
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.verified_user_outlined, color: Colors.white, size: 28),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Anda Terproteksi',
+                              style: GoogleFonts.leagueSpartan(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
             ),
           ),
         ],
@@ -140,22 +212,18 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         children: [
           // Toggle Card
-          Container(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF00C9A7), Color(0xFF00897B)], // Green/Teal Gradient
+              gradient: LinearGradient(
+                colors: isProtected
+                    ? [const Color(0xFF00C9A7), const Color(0xFF00897B)] 
+                    : [const Color(0xFFFF5252), const Color(0xFFD32F2F)], // Red Gradient
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
               ),
               borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
-              ],
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -193,10 +261,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         isProtected = val;
                       });
                     },
-                    activeColor: Colors.blue, // Icon color inside switch
-                    activeTrackColor: Colors.white,
+                    activeColor: Colors.white,
+                    activeTrackColor: const Color(0xFF00B0FF), // Blue when active
                     inactiveThumbColor: Colors.white,
-                    inactiveTrackColor: Colors.redAccent,
+                    inactiveTrackColor: const Color(0xFFFF5252), // Red when inactive
+                    trackOutlineColor: MaterialStateProperty.all(Colors.transparent),
                   ),
                 ),
               ],
@@ -226,13 +295,14 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 20),
 
           // Main Stats Card
-          Container(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
             width: double.infinity,
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: const Color(0xFFD0E8E2), // Light greenish/beige tint
+              color: isProtected ? const Color(0xFFD0E8E2) : const Color(0xFFFFE0E0), 
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.black12),
+              // Border removed to fix "garis item" issue
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -278,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 
                 const SizedBox(height: 16),
-                Divider(color: Colors.black.withOpacity(0.1), thickness: 1.5),
+                Divider(color: Colors.black87, thickness: 1.0), // Darker divider
                 const SizedBox(height: 16),
 
                 Text(
@@ -291,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 
                 const SizedBox(height: 16),
 
-                // Content Area (List or Empty State)
+                // Content Area
                 if (isProtected)
                   if (hasData)
                     _buildBlockedList()
@@ -329,17 +399,11 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         children: [
           const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.red.withOpacity(0.1),
-            ),
-            child: const Icon(
-              Icons.gpp_bad_rounded,
-              size: 80,
-              color: Colors.redAccent,
-            ),
+          // Menggunakan gambar nosafe.png sesuai request user
+          Image.asset(
+            'assets/images/nosafe.png',
+            width: 100, // Adjusted size
+            height: 100,
           ),
           const SizedBox(height: 16),
           Text(
@@ -360,17 +424,16 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         children: [
           const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.green.withOpacity(0.1),
-            ),
-            child: const Icon(
-              Icons.verified_user_rounded,
-              size: 80,
-              color: Colors.green,
-            ),
+          // Menggunakan gambar safe.png jika ada
+          Image.asset(
+            'assets/images/safe.png',
+             width: 100,
+             height: 100,
+             errorBuilder: (ctx, _, __) => const Icon(
+               Icons.verified_user_rounded, 
+               size: 80, 
+               color: Colors.green
+             ),
           ),
           const SizedBox(height: 16),
           Text(
@@ -387,7 +450,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildBlockedList() {
-    // Dummy Data
     final blockedSites = [
       {'url': 'slotgacor.com', 'time': '15:10, 22/10/2025'},
       {'url': 'slototo.com', 'time': '15:10, 22/10/2025'},
@@ -411,6 +473,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
                   color: Colors.black87,
+                  
                 ),
               ),
               Text(
@@ -428,24 +491,32 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildChatBotButton() {
-    return Container(
-      width: 60,
-      height: 60,
-      decoration: BoxDecoration(
-        color: const Color(0xFF00B0FF), // Light Blue
-        borderRadius: BorderRadius.circular(20), // Squarish rounded
-        boxShadow: [
-          BoxShadow(
-            color: Colors.blue.withOpacity(0.4),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context, 
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 600),
+            pageBuilder: (context, animation, secondaryAnimation) => const ChatbotScreen(),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              const begin = Offset(0.0, 1.0);
+              const end = Offset.zero;
+              const curve = Curves.easeInOut;
+
+              var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+
+              return SlideTransition(
+                position: animation.drive(tween),
+                child: child,
+              );
+            },
           ),
-        ],
-      ),
-      child: const Icon(
-        Icons.smart_toy_rounded,
-        color: Colors.white,
-        size: 32,
+        );
+      },
+      child: Image.asset(
+        'assets/images/chatbot.png',
+        width: 80, 
+        height: 80,
       ),
     );
   }
