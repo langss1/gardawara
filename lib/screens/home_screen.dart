@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:gardawara_ai/screens/chatbot_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'chatbot_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -40,12 +40,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildHeaderBackground() {
+  Widget _buildHeader() {
     return SizedBox(
       height: 400,
       width: double.infinity,
       child: Stack(
-        fit: StackFit.expand,
         children: [
           // Map Image
           Image.asset(
@@ -67,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
 
           Positioned(
-            top: 60,
+            top: 50, // Moved up to touch the top gradient slightly
             left: 0,
             right: 0,
             child: Column(
@@ -139,7 +138,8 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         children: [
           // Toggle Card
-          Container(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
@@ -151,13 +151,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 end: Alignment.centerRight,
               ),
               borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
-              ],
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -191,14 +184,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Switch(
                     value: isProtected,
                     onChanged: (val) {
-                      setState(() {
-                        isProtected = val;
-                      });
+                      _requestPermission();
                     },
-                    activeColor: Colors.blue, // Icon color inside switch
-                    activeTrackColor: Colors.white,
+                    activeColor: Colors.white,
+                    activeTrackColor: const Color(
+                      0xFF00B0FF,
+                    ), // Blue when active
                     inactiveThumbColor: Colors.white,
-                    inactiveTrackColor: Colors.redAccent,
+                    inactiveTrackColor: const Color(
+                      0xFFFF5252,
+                    ), // Red when inactive
+                    trackOutlineColor: MaterialStateProperty.all(
+                      Colors.transparent,
+                    ),
                   ),
                 ),
               ],
@@ -228,13 +226,17 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 20),
 
           // Main Stats Card
-          Container(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
             width: double.infinity,
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: const Color(0xFFD0E8E2), // Light greenish/beige tint
+              color:
+                  isProtected
+                      ? const Color(0xFFD0E8E2)
+                      : const Color(0xFFFFE0E0),
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.black12),
+              // Border removed to fix "garis item" issue
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -243,7 +245,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Row(
                   children: [
                     Text(
-                      isProtected ? (hasData ? '124' : '0') : '0',
+                      blockedCount.toString(),
                       style: GoogleFonts.leagueSpartan(
                         fontSize: 64,
                         fontWeight: FontWeight.w900,
@@ -280,7 +282,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
 
                 const SizedBox(height: 16),
-                Divider(color: Colors.black.withOpacity(0.1), thickness: 1.5),
+                Divider(
+                  color: Colors.black87,
+                  thickness: 1.0,
+                ), // Darker divider
                 const SizedBox(height: 16),
 
                 Text(
@@ -293,7 +298,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 const SizedBox(height: 16),
 
-                // Content Area (List or Empty State)
+                // Content Area
                 if (isProtected)
                   if (hasData)
                     _buildBlockedList()
@@ -331,17 +336,11 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         children: [
           const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.red.withOpacity(0.1),
-            ),
-            child: const Icon(
-              Icons.gpp_bad_rounded,
-              size: 80,
-              color: Colors.redAccent,
-            ),
+          // Menggunakan gambar nosafe.png sesuai request user
+          Image.asset(
+            'assets/images/nosafe.png',
+            width: 100, // Adjusted size
+            height: 100,
           ),
           const SizedBox(height: 16),
           Text(
@@ -362,17 +361,17 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         children: [
           const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.green.withOpacity(0.1),
-            ),
-            child: const Icon(
-              Icons.verified_user_rounded,
-              size: 80,
-              color: Colors.green,
-            ),
+          // Menggunakan gambar safe.png jika ada
+          Image.asset(
+            'assets/images/safe.png',
+            width: 100,
+            height: 100,
+            errorBuilder:
+                (ctx, _, __) => const Icon(
+                  Icons.verified_user_rounded,
+                  size: 80,
+                  color: Colors.green,
+                ),
           ),
           const SizedBox(height: 16),
           Text(
@@ -389,7 +388,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildBlockedList() {
-    // Dummy Data
     final blockedSites = [
       {'url': 'slotgacor.com', 'time': '15:10, 22/10/2025'},
       {'url': 'slototo.com', 'time': '15:10, 22/10/2025'},
@@ -445,19 +443,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      child: GestureDetector(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const GardaChatScreen()),
-          );
-        },
-        child: const Icon(
-          Icons.smart_toy_rounded,
-          color: Colors.white,
-          size: 32,
-        ),
-      ),
+      child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 32),
     );
   }
 }
