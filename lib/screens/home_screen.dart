@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'chatbot_screen.dart';
 
@@ -9,10 +10,79 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  // Logic default: False (Unprotected/Merah)
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  static const platform = MethodChannel('com.example.gardawara_ai/accessibility');
   bool isProtected = false; 
   bool hasData = false;
+  int blockedCount = 0; // Dynamic Counter
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkPermission();
+    _updateBlockedCount();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermission();
+      _updateBlockedCount();
+    }
+  }
+
+  Future<void> _updateBlockedCount() async {
+     try {
+       final int count = await platform.invokeMethod('getBlockedCount');
+       if (mounted) {
+         setState(() {
+           blockedCount = count;
+         });
+       }
+     } catch (_) {}
+  }
+
+  Future<void> _checkPermission() async {
+    try {
+      final bool result = await platform.invokeMethod('isAccessibilityEnabled');
+      if (mounted) {
+        setState(() {
+          isProtected = result;
+        });
+      }
+    } on PlatformException catch (e) {
+      debugPrint("Failed to check permission: '${e.message}'.");
+    }
+  }
+
+  Future<void> _requestPermission() async {
+     // SIMULATION FOR WINDOWS (Since we can't use Android Accessibility Service here)
+     // This allows you to test the UI toggling and "active" state visuals.
+     if (Theme.of(context).platform != TargetPlatform.android) {
+       setState(() {
+         isProtected = !isProtected;
+       });
+       ScaffoldMessenger.of(context).showSnackBar(
+         SnackBar(
+           content: Text(isProtected ? "Simulasi: Proteksi AKTIF" : "Simulasi: Proteksi NON-AKTIF"),
+           duration: const Duration(milliseconds: 1000),
+           backgroundColor: isProtected ? const Color(0xFF00C9A7) : Colors.red,
+         ),
+       );
+       return;
+     }
+
+     try {
+       await platform.invokeMethod('requestAccessibilityPermission');
+     } on PlatformException catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,9 +134,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     : 'assets/images/Peta_Unlocked.png',
                 key: ValueKey<bool>(isProtected),
                 fit: BoxFit.cover,
-                alignment: Alignment.topCenter,
-                width: double.infinity, // Explicitly force full width
-                height: double.infinity, // Explicitly force full height
+                // Focused on Southeast Asia (Constraint)
+                alignment: const Alignment(0.0, -0.2), 
+                width: double.infinity, 
+                height: double.infinity,
               ),
             ),
           ),
@@ -228,38 +299,40 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'PERLINDUNGAN GARDA WARA',
-                      style: GoogleFonts.leagueSpartan(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'PERLINDUNGAN GARDA WARA',
+                        style: GoogleFonts.leagueSpartan(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isProtected 
-                          ? 'Perlindungan Aman' 
-                          : 'Perlindungan Tidak Aktif',
-                      style: GoogleFonts.leagueSpartan(
-                        color: Colors.white.withOpacity(0.9),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w300,
+                      const SizedBox(height: 4),
+                      Text(
+                        isProtected 
+                            ? 'Perlindungan Aman' 
+                            : 'Perlindungan Tidak Aktif',
+                        style: GoogleFonts.leagueSpartan(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w300,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 Transform.scale(
                   scale: 0.8,
                   child: Switch(
                     value: isProtected,
                     onChanged: (val) {
-                      setState(() {
-                        isProtected = val;
-                      });
+                      _requestPermission();
                     },
                     activeColor: Colors.white,
                     activeTrackColor: const Color(0xFF00B0FF), // Blue when active
@@ -311,7 +384,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Row(
                   children: [
                     Text(
-                      isProtected ? (hasData ? '124' : '0') : '0',
+                      blockedCount.toString(),
                       style: GoogleFonts.leagueSpartan(
                         fontSize: 64,
                         fontWeight: FontWeight.w900,

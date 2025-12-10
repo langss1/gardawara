@@ -20,9 +20,59 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     },
   ];
 
+  // Keywords to detect (Same as in Kotlin for Android App)
+  final List<String> _blacklist = ["judi", "slot gacor", "toto", "situs gacor", "bandar judi", "taruhan bola", "judi online"];
+
   void _handleSubmitted(String text) {
     if (text.trim().isEmpty) return;
     _controller.clear();
+
+    // --- ALGORITHM DETECTION SIMULATION ---
+    // Defines the logic that runs natively on Android Accessibility Service
+    bool isRestricted = _blacklist.any((word) => text.toLowerCase().contains(word));
+    
+    if (isRestricted) {
+       showDialog(
+         context: context,
+         barrierDismissible: false,
+         builder: (ctx) => AlertDialog(
+           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+           title: const Row(
+             children: [
+               Icon(Icons.gpp_bad_rounded, color: Colors.red, size: 32),
+               SizedBox(width: 12),
+               Text("TERDETEKSI!", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+             ],
+           ),
+           content: const Text(
+             "Sistem GardaWara mendeteksi kata kunci terkait perjudian. \n\n"
+             "Akses ini otomatis diblokir untuk melindungi Anda.",
+             style: TextStyle(fontSize: 16, height: 1.5),
+           ),
+           actions: [
+             Container(
+               width: double.infinity,
+               margin: const EdgeInsets.only(bottom: 10, left: 10, right: 10),
+               child: ElevatedButton(
+                 style: ElevatedButton.styleFrom(
+                   backgroundColor: Colors.red,
+                   foregroundColor: Colors.white,
+                   padding: const EdgeInsets.symmetric(vertical: 12),
+                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                 ),
+                 onPressed: () {
+                   Navigator.pop(ctx); // Close Dialog
+                   Navigator.pop(context); // Force User Back (Simulate Blocking)
+                 },
+                 child: const Text("KEMBALI KE AMAN", style: TextStyle(fontWeight: FontWeight.bold)),
+               ),
+             )
+           ],
+         )
+       );
+       return; // Stop processing the message
+    }
+
     setState(() {
       _messages.add({'isUser': true, 'text': text});
       _isTyping = true;
