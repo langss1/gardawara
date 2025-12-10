@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'chatbot_screen.dart';
 
@@ -9,122 +10,290 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  bool isProtected = true;
-  bool hasData = true;
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  static const platform = MethodChannel(
+    'com.example.gardawara_ai/accessibility',
+  );
+  bool isProtected = false;
+  bool hasData = false;
+  int blockedCount = 0; // Dynamic Counter
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkPermission();
+    _updateBlockedCount();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermission();
+      _updateBlockedCount();
+    }
+  }
+
+  Future<void> _updateBlockedCount() async {
+    try {
+      final int count = await platform.invokeMethod('getBlockedCount');
+      if (mounted) {
+        setState(() {
+          blockedCount = count;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _checkPermission() async {
+    try {
+      final bool result = await platform.invokeMethod('isAccessibilityEnabled');
+      if (mounted) {
+        setState(() {
+          isProtected = result;
+        });
+      }
+    } on PlatformException catch (e) {
+      debugPrint("Failed to check permission: '${e.message}'.");
+    }
+  }
+
+  Future<void> _requestPermission() async {
+    // SIMULATION FOR WINDOWS (Since we can't use Android Accessibility Service here)
+    // This allows you to test the UI toggling and "active" state visuals.
+    if (Theme.of(context).platform != TargetPlatform.android) {
+      setState(() {
+        isProtected = !isProtected;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isProtected
+                ? "Simulasi: Proteksi AKTIF"
+                : "Simulasi: Proteksi NON-AKTIF",
+          ),
+          duration: const Duration(milliseconds: 1000),
+          backgroundColor: isProtected ? const Color(0xFF00C9A7) : Colors.red,
+        ),
+      );
+      return;
+    }
+
+    try {
+      await platform.invokeMethod('requestAccessibilityPermission');
+    } on PlatformException catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: Stack(
-        children: [
-          _buildHeaderBackground(),
+      backgroundColor: const Color(0xFFF5F5F5), // Light Gray background
+      floatingActionButton: _buildChatBotButton(),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // 1. Header Area (Map + Status)
+            _buildHeader(),
 
-          SingleChildScrollView(
-            child: Column(
-              children: [
-                const SizedBox(height: 320),
-
-                // Content Body
-                _buildContentBody(),
-
-                const SizedBox(height: 80),
-              ],
+            // 2. Content Body
+            // Move up to overlap with the header transition
+            Transform.translate(
+              offset: const Offset(
+                0,
+                -60,
+              ), // Adjusted offset for smoother overlap
+              child: _buildContentBody(),
             ),
-          ),
 
-          Positioned(bottom: 20, right: 20, child: _buildChatBotButton()),
-        ],
+            const SizedBox(height: 80),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildHeader() {
     return SizedBox(
-      height: 400,
+      height: 550, // Slightly taller for better crop
       width: double.infinity,
       child: Stack(
         children: [
-          // Map Image
-          Image.asset(
-            isProtected
-                ? 'assets/images/Peta_Unlocked.png'
-                : 'assets/images/Peta_Locked.png',
-            fit: BoxFit.cover,
-            alignment: Alignment.topCenter,
-          ),
-
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.black.withOpacity(0.3), Colors.transparent],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+          // Background Map
+          Positioned.fill(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 500),
+              layoutBuilder: (
+                Widget? currentChild,
+                List<Widget> previousChildren,
+              ) {
+                return Stack(
+                  fit:
+                      StackFit
+                          .expand, // FORCE FILL: Ensures map size never changes
+                  children: <Widget>[
+                    ...previousChildren,
+                    if (currentChild != null) currentChild,
+                  ],
+                );
+              },
+              child: Image.asset(
+                isProtected
+                    ? 'assets/images/Peta_Locked.png'
+                    : 'assets/images/Peta_Unlocked.png',
+                key: ValueKey<bool>(isProtected),
+                fit: BoxFit.cover,
+                // Focused on Southeast Asia (Constraint)
+                alignment: const Alignment(0.0, -0.2),
+                width: double.infinity,
+                height: double.infinity,
               ),
             ),
           ),
 
+          // Gradients Logic
+          // Top Gradient (Red for Unprotected, Green for Protected)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 150,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 500),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    isProtected
+                        ? const Color(0xFF00C9A7).withOpacity(0.8)
+                        : Colors.red.withOpacity(0.8),
+                    Colors.transparent,
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+            ),
+          ),
+
+          // Bottom Gray Gradient (Fade into body content)
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 100, // Smoother fade
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFFF5F5F5).withOpacity(0.0),
+                    const Color(0xFFF5F5F5),
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+            ),
+          ),
+
+          // Status Text & Icon
           Positioned(
             top: 50, // Moved up to touch the top gradient slightly
             left: 0,
             right: 0,
-            child: Column(
-              children: [
-                if (!isProtected) ...[
-                  const Icon(
-                    Icons.lock_open_rounded,
-                    color: Colors.white,
-                    size: 32,
-                  ),
-                  Text(
-                    'Anda tidak terproteksi dari Judi',
-                    style: GoogleFonts.leagueSpartan(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Container(
-                    margin: const EdgeInsets.only(top: 8),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '5700+ website judi ditemukan',
-                      style: GoogleFonts.leagueSpartan(
-                        color: Colors.white,
-                        fontSize: 14,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 500),
+              // FIX: Anchor children to the TOP so they don't jump vertically
+              layoutBuilder: (
+                Widget? currentChild,
+                List<Widget> previousChildren,
+              ) {
+                return Stack(
+                  alignment: Alignment.topCenter,
+                  children: <Widget>[
+                    ...previousChildren,
+                    if (currentChild != null) currentChild,
+                  ],
+                );
+              },
+              transitionBuilder: (Widget child, Animation<double> animation) {
+                return FadeTransition(opacity: animation, child: child);
+              },
+              child:
+                  !isProtected
+                      ? Column(
+                        key: const ValueKey('unprotected'),
+                        children: [
+                          Image.asset(
+                            'assets/images/unlock.png',
+                            width: 40,
+                            height: 40,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Anda tidak terproteksi dari Judi',
+                            style: GoogleFonts.leagueSpartan(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              shadows: [
+                                const Shadow(
+                                  offset: Offset(0, 1),
+                                  blurRadius: 4.0,
+                                  color: Colors.black45,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            margin: const EdgeInsets.only(top: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              '5700+ website judi ditemukan',
+                              style: GoogleFonts.leagueSpartan(
+                                color: Colors.white,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                      : Column(
+                        key: const ValueKey('protected'),
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.verified_user_outlined,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Anda Terproteksi',
+                                style: GoogleFonts.leagueSpartan(
+                                  color: Colors.white,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    ),
-                  ),
-                ] else ...[
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.verified_user_outlined,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Anda Terproteksi',
-                        style: GoogleFonts.leagueSpartan(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
             ),
           ),
         ],
@@ -142,11 +311,14 @@ class _HomeScreenState extends State<HomeScreen> {
             duration: const Duration(milliseconds: 500),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [
-                  Color(0xFF00C9A7),
-                  Color(0xFF00897B),
-                ], // Green/Teal Gradient
+              gradient: LinearGradient(
+                colors:
+                    isProtected
+                        ? [const Color(0xFF00C9A7), const Color(0xFF00897B)]
+                        : [
+                          const Color(0xFFFF5252),
+                          const Color(0xFFD32F2F),
+                        ], // Red Gradient
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
               ),
@@ -155,29 +327,33 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'PERLINDUNGAN GARDA WARA',
-                      style: GoogleFonts.leagueSpartan(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'PERLINDUNGAN GARDA WARA',
+                        style: GoogleFonts.leagueSpartan(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isProtected
-                          ? 'Perlindungan Aman'
-                          : 'Perlindungan Tidak Aktif',
-                      style: GoogleFonts.leagueSpartan(
-                        color: Colors.white.withOpacity(0.9),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w300,
+                      const SizedBox(height: 4),
+                      Text(
+                        isProtected
+                            ? 'Perlindungan Aman'
+                            : 'Perlindungan Tidak Aktif',
+                        style: GoogleFonts.leagueSpartan(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w300,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 Transform.scale(
                   scale: 0.8,
@@ -429,21 +605,39 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildChatBotButton() {
-    return Container(
-      width: 60,
-      height: 60,
-      decoration: BoxDecoration(
-        color: const Color(0xFF00B0FF), // Light Blue
-        borderRadius: BorderRadius.circular(20), // Squarish rounded
-        boxShadow: [
-          BoxShadow(
-            color: Colors.blue.withOpacity(0.4),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 600),
+            pageBuilder:
+                (context, animation, secondaryAnimation) =>
+                    const GardaChatScreen(),
+            transitionsBuilder: (
+              context,
+              animation,
+              secondaryAnimation,
+              child,
+            ) {
+              const begin = Offset(0.0, 1.0);
+              const end = Offset.zero;
+              const curve = Curves.easeInOut;
+
+              var tween = Tween(
+                begin: begin,
+                end: end,
+              ).chain(CurveTween(curve: curve));
+
+              return SlideTransition(
+                position: animation.drive(tween),
+                child: child,
+              );
+            },
           ),
-        ],
-      ),
-      child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 32),
+        );
+      },
+      child: Image.asset('assets/images/chatbot.png', width: 80, height: 80),
     );
   }
 }
