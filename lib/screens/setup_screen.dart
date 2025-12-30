@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../service/heartbeat_service.dart';
+import '../common/services/heartbeat_service.dart';
 import 'home_screen.dart';
 
 class SetupScreen extends StatefulWidget {
@@ -36,28 +36,44 @@ class _SetupScreenState extends State<SetupScreen> {
 
   void _activateProtection() async {
     if (_formKey.currentState!.validate()) {
-      // Tampilkan loading dialog atau indikator jika perlu
-      await HeartbeatService.startProtection(
+      // 1. Tampilkan Loading
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      // 2. Cek apakah ID terdaftar di Bot (Koleksi registered_guards)
+      bool isValid = await HeartbeatService.verifyGuard(_chatIdController.text);
+
+      if (!mounted) return;
+      Navigator.pop(context); // Tutup loading
+
+      if (!isValid) {
+        // Jika ID tidak ditemukan di backend
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.red,
+            content: Text(
+              "ID Telegram tidak ditemukan! Pastikan sudah klik /start di bot.",
+            ),
+          ),
+        );
+        return;
+      }
+
+      // 3. Jika valid, jalankan proteksi (Kirim ke koleksi users)
+      bool success = await HeartbeatService.startProtection(
         "user_${DateTime.now().millisecondsSinceEpoch}",
         _chatIdController.text,
         _nameController.text,
       );
 
-      if (mounted) {
+      if (success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: primaryDark,
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    "Proteksi Aktif! Aplikasi berjalan di background.",
-                  ),
-                ),
-              ],
-            ),
+            content: const Text("Proteksi Aktif! ID tervalidasi."),
           ),
         );
 

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/splash_screen.dart';
-import 'service/heartbeat_service.dart';
+import 'common/services/heartbeat_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
