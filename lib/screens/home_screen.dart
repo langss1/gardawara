@@ -1,6 +1,7 @@
 import 'dart:convert'; // Untuk encode/decode JSON
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gardawara_ai/common/services/history_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // Import SharedPreferences
@@ -91,6 +92,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
           // 2. Simpan setiap ada deteksi baru
           await _saveData();
+
+          await HistoryService.syncHistoryToServer(_blockedHistory);
 
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(

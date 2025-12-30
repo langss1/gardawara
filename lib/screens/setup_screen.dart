@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../common/services/heartbeat_service.dart';
@@ -35,22 +36,32 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   void _activateProtection() async {
-    if (_formKey.currentState!.validate()) {
-      // 1. Tampilkan Loading
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
-      );
+    if (!_formKey.currentState!.validate()) return;
 
-      // 2. Cek apakah ID terdaftar di Bot (Koleksi registered_guards)
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      String userId = prefs.getString('userId') ?? "";
+      if (userId.isEmpty) {
+        userId = "user_${DateTime.now().millisecondsSinceEpoch}";
+        await prefs.setString('userId', userId);
+        print("User baru dibuat: $userId");
+      } else {
+        print("Menggunakan User ID lama: $userId");
+      }
+
       bool isValid = await HeartbeatService.verifyGuard(_chatIdController.text);
 
       if (!mounted) return;
-      Navigator.pop(context); // Tutup loading
+      Navigator.pop(context);
 
       if (!isValid) {
-        // Jika ID tidak ditemukan di backend
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Colors.red,
@@ -62,9 +73,8 @@ class _SetupScreenState extends State<SetupScreen> {
         return;
       }
 
-      // 3. Jika valid, jalankan proteksi (Kirim ke koleksi users)
       bool success = await HeartbeatService.startProtection(
-        "user_${DateTime.now().millisecondsSinceEpoch}",
+        userId,
         _chatIdController.text,
         _nameController.text,
       );
@@ -72,7 +82,7 @@ class _SetupScreenState extends State<SetupScreen> {
       if (success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            backgroundColor: primaryDark,
+            backgroundColor: const Color(0xFF138066),
             content: const Text("Proteksi Aktif! ID tervalidasi."),
           ),
         );
@@ -82,6 +92,9 @@ class _SetupScreenState extends State<SetupScreen> {
           MaterialPageRoute(builder: (context) => const HomeScreen()),
         );
       }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      print("Terjadi kesalahan: $e");
     }
   }
 
