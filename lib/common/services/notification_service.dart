@@ -42,20 +42,19 @@ class NotificationService {
     });
   }
 
+  static int? pendingTabIndex; // Store target tab index
+
   void _handleNavigation(RemoteMessage message) {
     if (message.data['screen'] == 'chatbot') {
-      isHandlingNotification = true; // Kunci Splash Screen!
+      // isHandlingNotification = true; // No longer needed to block Splash Screen
+      
+      pendingTabIndex = 2; // Set target to Chatbot tab (index 2)
 
       // Segera proses datanya ke Controller
       // Gunakan Future.microtask agar jalan secepat mungkin
       Future.microtask(() async {
         await ChatController().addMessageFromNotification(message.data);
-        
-        // Pindah ke layar chat
-        navigatorKey.currentState?.pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const GardaChatScreen()),
-          (route) => route.isFirst,
-        );
+         // Don't navigate here, let Splash Screen -> GuardianHomeScreen handle it
       });
     }
   }

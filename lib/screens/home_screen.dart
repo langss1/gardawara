@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart'; // Import SharedPre
 
 import '../common/services/classifier_service.dart';
 import 'chatbot_screen.dart';
+import 'settings_subscreens.dart'; // Import ActivityReportScreen
+import 'dart:async'; // Untuk Timer
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -27,6 +29,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<Map<String, String>> _blockedHistory = [];
   bool _isProcessing = false;
 
+  // Uptime State
+  DateTime? _startTime;
+  Timer? _activeTimer;
+  String _activeDuration = "0j 0m";
+
   @override
   void initState() {
     super.initState();
@@ -37,12 +44,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // 1. Load data dari local storage saat start
     _loadStoredData();
     _checkPermission();
+    _startUiTimer();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _activeTimer?.cancel();
     super.dispose();
+  }
+
+  void _startUiTimer() {
+    _activeTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
+      if (isProtected && _startTime != null) {
+        final duration = DateTime.now().difference(_startTime!);
+        if (mounted) {
+          setState(() {
+            _activeDuration =
+                "${duration.inHours}j ${duration.inMinutes % 60}m";
+          });
+        }
+      }
+    });
   }
 
   // --- LOGIKA PENYIMPANAN DATA (LOCAL STORAGE) ---
@@ -57,6 +80,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _blockedHistory =
             decoded.map((item) => Map<String, String>.from(item)).toList();
       }
+      // Load start time
+       String? timeRaw = prefs.getString('protectionStartTime');
+       if (timeRaw != null) {
+         _startTime = DateTime.parse(timeRaw);
+       }
     });
   }
 
@@ -112,7 +140,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _checkPermission() async {
     try {
       final bool result = await platform.invokeMethod('isAccessibilityEnabled');
-      if (mounted) setState(() => isProtected = result);
+      if (mounted) {
+        setState(() {
+          isProtected = result;
+          // Handle logic uptime
+          if (isProtected) {
+             if (_startTime == null) {
+               _startTime = DateTime.now();
+               SharedPreferences.getInstance().then((prefs) => 
+                 prefs.setString('protectionStartTime', _startTime!.toIso8601String()));
+             }
+          } else {
+             _startTime = null;
+             _activeDuration = "0j 0m";
+             SharedPreferences.getInstance().then((prefs) => 
+                 prefs.remove('protectionStartTime'));
+          }
+        });
+      }
     } on PlatformException catch (_) {}
   }
 
@@ -470,6 +515,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               color: Colors.black54,
                             ),
                           ),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: isProtected ? const Color(0xFF00C9A7).withOpacity(0.2) : Colors.grey[200],
+                              borderRadius: BorderRadius.circular(8)
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.timer, size: 14, color: isProtected ? const Color(0xFF00796B) : Colors.grey),
+                                const SizedBox(width: 4),
+                                Text(
+                                  "Aktif: $_activeDuration",
+                                  style: GoogleFonts.leagueSpartan(
+                                      fontSize: 12, 
+                                      fontWeight: FontWeight.w600,
+                                      color: isProtected ? const Color(0xFF00796B) : Colors.grey
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
                         ],
                       ),
                     ),
@@ -500,7 +568,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   const SizedBox(height: 8),
                   Center(
                     child: TextButton(
-                      onPressed: _showFullHistory,
+                      onPressed: () {
+                         // Navigasi ke ActivityReportScreen
+                         Navigator.push(
+                           context, 
+                           MaterialPageRoute(builder: (_) => ActivityReportScreen(
+                             history: _blockedHistory,
+                             blockedCount: blockedCount,
+                           ))
+                         );
+                      },
                       child: Text(
                         'Lihat Selengkapnya',
                         style: GoogleFonts.leagueSpartan(
