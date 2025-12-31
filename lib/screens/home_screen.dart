@@ -1,10 +1,15 @@
+import 'dart:convert'; // Untuk encode/decode JSON
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gardawara_ai/common/services/history_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Import SharedPreferences
 
-import '../service/services/classifier_service.dart';
+import '../common/services/classifier_service.dart';
 import 'chatbot_screen.dart';
+import 'settings_subscreens.dart'; // Import ActivityReportScreen
+import 'dart:async'; // Untuk Timer
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -14,92 +19,109 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  // 1. Setup Method Channel
   static const platform = MethodChannel(
     'com.example.gardawara_ai/accessibility',
   );
-
-  // 2. Setup Classifier Service
   final ClassifierService _classifier = ClassifierService();
 
   bool isProtected = false;
   int blockedCount = 0;
-
-  // 3. List Dinamis untuk Riwayat Blokir
   List<Map<String, String>> _blockedHistory = [];
-
-  // Variabel untuk debounce sederhana
   bool _isProcessing = false;
+
+  // Uptime State
+  DateTime? _startTime;
+  Timer? _activeTimer;
+  String _activeDuration = "0j 0m";
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-
-    // Load AI Model
     _classifier.loadModel();
-
-    // Setup Listener dari Android Native
     platform.setMethodCallHandler(_nativeMethodCallHandler);
 
-    // Cek status izin saat awal buka
+    // 1. Load data dari local storage saat start
+    _loadStoredData();
     _checkPermission();
+    _startUiTimer();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _activeTimer?.cancel();
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Saat user kembali dari menu Settings, cek ulang status izin
-    if (state == AppLifecycleState.resumed) {
-      _checkPermission();
-    }
+  void _startUiTimer() {
+    _activeTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
+      if (isProtected && _startTime != null) {
+        final duration = DateTime.now().difference(_startTime!);
+        if (mounted) {
+          setState(() {
+            _activeDuration =
+                "${duration.inHours}j ${duration.inMinutes % 60}m";
+          });
+        }
+      }
+    });
   }
 
-  // ------------------------------------------------------------------------
-  // LOGIKA UTAMA (Optimasi agar tidak freeze UI)
-  // ------------------------------------------------------------------------
+  // --- LOGIKA PENYIMPANAN DATA (LOCAL STORAGE) ---
+
+  Future<void> _loadStoredData() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      blockedCount = prefs.getInt('blockedCount') ?? 0;
+      String? historyRaw = prefs.getString('blockedHistory');
+      if (historyRaw != null) {
+        List<dynamic> decoded = jsonDecode(historyRaw);
+        _blockedHistory =
+            decoded.map((item) => Map<String, String>.from(item)).toList();
+      }
+      // Load start time
+       String? timeRaw = prefs.getString('protectionStartTime');
+       if (timeRaw != null) {
+         _startTime = DateTime.parse(timeRaw);
+       }
+    });
+  }
+
+  Future<void> _saveData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('blockedCount', blockedCount);
+    await prefs.setString('blockedHistory', jsonEncode(_blockedHistory));
+  }
+
+  // --- NATIVE HANDLER ---
+
   Future<dynamic> _nativeMethodCallHandler(MethodCall call) async {
     if (call.method == "onTextDetected") {
-      // Jika sedang memproses teks sebelumnya, skip dulu (Debounce sederhana)
-      if (_isProcessing) return;
+      if (_isProcessing || !isProtected) return;
       _isProcessing = true;
 
       final String text = call.arguments;
-
-      // Jangan proses jika proteksi belum aktif
-      if (!isProtected) {
-        _isProcessing = false;
-        return;
-      }
-
-      // Prediksi AI (Jalankan di background sebisa mungkin)
       bool isGambling = await _classifier.predict(text);
 
       if (isGambling) {
-        debugPrint("⚠️ JUDI TERDETEKSI: $text");
-
-        // Kirim Perintah Blokir (Back) ke Android
         await platform.invokeMethod('performGlobalActionBack');
 
-        // Update UI hanya jika mounted
         if (mounted) {
           setState(() {
             blockedCount++;
-            // Tambahkan ke riwayat
             _blockedHistory.insert(0, {
               'url': text.length > 25 ? "${text.substring(0, 25)}..." : text,
               'time': DateFormat('HH:mm, dd/MM').format(DateTime.now()),
             });
-            // Batasi riwayat
-            if (_blockedHistory.length > 10) {
-              _blockedHistory.removeLast();
-            }
+            // Simpan maksimal 50 riwayat agar storage tidak bengkak
+            if (_blockedHistory.length > 50) _blockedHistory.removeLast();
           });
+
+          // 2. Simpan setiap ada deteksi baru
+          await _saveData();
+
+          await HistoryService.syncHistoryToServer(_blockedHistory);
 
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -110,8 +132,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           );
         }
       }
-
-      // Beri jeda sedikit sebelum bisa memproses lagi (mengurangi beban UI)
       await Future.delayed(const Duration(milliseconds: 500));
       _isProcessing = false;
     }
@@ -123,18 +143,113 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           isProtected = result;
+          // Handle logic uptime
+          if (isProtected) {
+             if (_startTime == null) {
+               _startTime = DateTime.now();
+               SharedPreferences.getInstance().then((prefs) => 
+                 prefs.setString('protectionStartTime', _startTime!.toIso8601String()));
+             }
+          } else {
+             _startTime = null;
+             _activeDuration = "0j 0m";
+             SharedPreferences.getInstance().then((prefs) => 
+                 prefs.remove('protectionStartTime'));
+          }
         });
       }
-    } on PlatformException catch (_) {
-      // Abaikan jika method belum siap
-    }
+    } on PlatformException catch (_) {}
   }
 
   Future<void> _openSettings() async {
     try {
-      // Panggil native method untuk buka settings aksesibilitas
       await platform.invokeMethod('requestAccessibilityPermission');
     } on PlatformException catch (_) {}
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _checkPermission();
+  }
+
+  // --- UI HELPERS ---
+
+  // Menampilkan Modal Bottom Sheet untuk riwayat lengkap
+  void _showFullHistory() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      builder:
+          (context) => Container(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Semua Riwayat Blokir',
+                  style: GoogleFonts.leagueSpartan(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _blockedHistory.length,
+                    itemBuilder:
+                        (context, index) =>
+                            _buildHistoryItem(_blockedHistory[index]),
+                  ),
+                ),
+              ],
+            ),
+          ),
+    );
+  }
+
+  // Widget item riwayat yang reusable
+  Widget _buildHistoryItem(Map<String, String> site) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              site['url']!,
+              style: GoogleFonts.leagueSpartan(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.black87,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            site['time']!,
+            style: GoogleFonts.leagueSpartan(
+              fontSize: 12,
+              color: Colors.black45,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -158,26 +273,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildHeader() {
+    // Ambil lebar layar secara eksplisit
+    double screenWidth = MediaQuery.of(context).size.width;
+
     return SizedBox(
       height: 550,
-      width: double.infinity,
+      width: screenWidth, // Gunakan lebar layar eksplisit
       child: Stack(
         children: [
           Positioned.fill(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 500),
-              child: Image.asset(
-                isProtected
-                    ? 'assets/images/Peta_Locked.png'
-                    : 'assets/images/Peta_Unlocked.png',
+              // Agar child dari AnimatedSwitcher memenuhi ruang yang tersedia
+              layoutBuilder: (
+                Widget? currentChild,
+                List<Widget> previousChildren,
+              ) {
+                return Stack(
+                  alignment: Alignment.center,
+                  children: <Widget>[
+                    ...previousChildren,
+                    if (currentChild != null) currentChild,
+                  ],
+                );
+              },
+              child: SizedBox(
+                // Key harus di level paling atas child AnimatedSwitcher
                 key: ValueKey<bool>(isProtected),
-                fit: BoxFit.cover,
-                alignment: const Alignment(0.0, -0.2),
-                width: double.infinity,
-                height: double.infinity,
+                width: screenWidth,
+                height: 550,
+                child: Image.asset(
+                  isProtected
+                      ? 'assets/images/Peta_Locked.png'
+                      : 'assets/images/Peta_Unlocked.png',
+                  fit: BoxFit.cover, // Memastikan gambar menutupi seluruh area
+                  alignment: const Alignment(0.0, -0.2),
+                ),
               ),
             ),
           ),
+          // --- Gradient Overlay Top (tetap sama) ---
           Positioned(
             top: 0,
             left: 0,
@@ -199,6 +334,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ),
           ),
+          // --- Gradient Overlay Bottom (tetap sama) ---
           Positioned(
             bottom: 0,
             left: 0,
@@ -217,48 +353,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ),
           ),
+          // --- Status Text (tetap sama) ---
           Positioned(
             top: 50,
             left: 0,
             right: 0,
-            child:
-                !isProtected
-                    ? Column(
-                      children: [
-                        Image.asset(
-                          'assets/images/unlock.png',
-                          width: 40,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Anda tidak terproteksi',
-                          style: GoogleFonts.leagueSpartan(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
+            child: Column(
+              children: [
+                isProtected
+                    ? const Icon(
+                      Icons.verified_user_outlined,
+                      color: Colors.white,
+                      size: 28,
                     )
-                    : Column(
-                      children: [
-                        const Icon(
-                          Icons.verified_user_outlined,
-                          color: Colors.white,
-                          size: 28,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Anda Terproteksi',
-                          style: GoogleFonts.leagueSpartan(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
+                    : Image.asset(
+                      'assets/images/unlock.png',
+                      width: 40,
+                      color: Colors.white,
                     ),
+                const SizedBox(height: 8),
+                Text(
+                  isProtected ? 'Anda Terproteksi' : 'Anda tidak terproteksi',
+                  style: GoogleFonts.leagueSpartan(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -279,8 +402,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     isProtected
                         ? [const Color(0xFF00C9A7), const Color(0xFF00897B)]
                         : [const Color(0xFFFF5252), const Color(0xFFD32F2F)],
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
               ),
               borderRadius: BorderRadius.circular(20),
             ),
@@ -312,15 +433,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ],
                   ),
                 ),
-                // LOGIKA SWITCH YANG DIPERBAIKI
                 Transform.scale(
                   scale: 0.8,
                   child: Switch(
                     value: isProtected,
-                    onChanged: (val) {
-                      // Selalu buka setting, status akan update saat kembali ke app
-                      _openSettings();
-                    },
+                    onChanged: (val) => _openSettings(),
                     activeColor: Colors.white,
                     activeTrackColor: const Color(0xFF00B0FF),
                     inactiveThumbColor: Colors.white,
@@ -334,8 +451,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ),
           const SizedBox(height: 16),
-
-          // Disclaimer Info
+          // Info Disclaimer
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -353,7 +469,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ],
           ),
           const SizedBox(height: 20),
-
           // Stats Card
           AnimatedContainer(
             duration: const Duration(milliseconds: 500),
@@ -376,7 +491,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       style: GoogleFonts.leagueSpartan(
                         fontSize: 64,
                         fontWeight: FontWeight.w900,
-                        color: Colors.black,
                         height: 1.0,
                       ),
                     ),
@@ -390,7 +504,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             style: GoogleFonts.leagueSpartan(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              color: Colors.black,
                             ),
                           ),
                           Text(
@@ -402,15 +515,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               color: Colors.black54,
                             ),
                           ),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: isProtected ? const Color(0xFF00C9A7).withOpacity(0.2) : Colors.grey[200],
+                              borderRadius: BorderRadius.circular(8)
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.timer, size: 14, color: isProtected ? const Color(0xFF00796B) : Colors.grey),
+                                const SizedBox(width: 4),
+                                Text(
+                                  "Aktif: $_activeDuration",
+                                  style: GoogleFonts.leagueSpartan(
+                                      fontSize: 12, 
+                                      fontWeight: FontWeight.w600,
+                                      color: isProtected ? const Color(0xFF00796B) : Colors.grey
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
                         ],
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                const Divider(color: Colors.black87),
+                const Divider(color: Colors.black26),
                 const SizedBox(height: 16),
-
                 Text(
                   'Riwayat Pemblokiran',
                   style: GoogleFonts.leagueSpartan(
@@ -420,6 +555,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 16),
 
+                // Logika Riwayat
                 if (isProtected && _blockedHistory.isNotEmpty)
                   _buildBlockedList()
                 else if (isProtected)
@@ -427,11 +563,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 else
                   _buildEmptyStateUnprotected(),
 
-                if (isProtected && _blockedHistory.isNotEmpty) ...[
-                  const SizedBox(height: 16),
+                // Tombol Lihat Selengkapnya (Hanya jika > 4 data)
+                if (isProtected && _blockedHistory.length > 4) ...[
+                  const SizedBox(height: 8),
                   Center(
                     child: TextButton(
-                      onPressed: () {},
+                      onPressed: () {
+                         // Navigasi ke ActivityReportScreen
+                         Navigator.push(
+                           context, 
+                           MaterialPageRoute(builder: (_) => ActivityReportScreen(
+                             history: _blockedHistory,
+                             blockedCount: blockedCount,
+                           ))
+                         );
+                      },
                       child: Text(
                         'Lihat Selengkapnya',
                         style: GoogleFonts.leagueSpartan(
@@ -451,89 +597,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildEmptyStateUnprotected() {
-    return Center(
-      child: Column(
-        children: [
-          const SizedBox(height: 20),
-          Image.asset('assets/images/nosafe.png', width: 100, height: 100),
-          const SizedBox(height: 16),
-          Text(
-            'Segera Aktifkan Gardawara!',
-            style: GoogleFonts.leagueSpartan(
-              color: Colors.black54,
-              fontSize: 14,
-            ),
-          ),
-          const SizedBox(height: 20),
-        ],
-      ),
-    );
-  }
+  Widget _buildEmptyStateUnprotected() => _buildEmptyPlaceholder(
+    'assets/images/nosafe.png',
+    'Segera Aktifkan Gardawara!',
+  );
+  Widget _buildEmptyStateProtected() => _buildEmptyPlaceholder(
+    'assets/images/safe.png',
+    'Gardawara tidak mendeteksi apapun',
+  );
 
-  Widget _buildEmptyStateProtected() {
+  Widget _buildEmptyPlaceholder(String img, String label) {
     return Center(
       child: Column(
         children: [
-          const SizedBox(height: 20),
-          Image.asset('assets/images/safe.png', width: 100, height: 100),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
+          Image.asset(img, width: 80, height: 80),
+          const SizedBox(height: 12),
           Text(
-            'Gardawara tidak mendeteksi apapun',
+            label,
             style: GoogleFonts.leagueSpartan(
               color: Colors.black54,
-              fontSize: 14,
+              fontSize: 13,
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
         ],
       ),
     );
   }
 
   Widget _buildBlockedList() {
+    // Ambil maksimal 4 item terbaru untuk tampilan utama
+    final displayList = _blockedHistory.take(4).toList();
     return Column(
-      children:
-          _blockedHistory.map((site) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      site['url']!,
-                      style: GoogleFonts.leagueSpartan(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.black87,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    site['time']!,
-                    style: GoogleFonts.leagueSpartan(
-                      fontSize: 12,
-                      color: Colors.black45,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
+      children: displayList.map((site) => _buildHistoryItem(site)).toList(),
     );
   }
 
   Widget _buildChatBotButton() {
     return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const GardaChatScreen()),
-        );
-      },
+      onTap:
+          () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const GardaChatScreen()),
+          ),
       child: Image.asset('assets/images/chatbot.png', width: 80, height: 80),
     );
   }

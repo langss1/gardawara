@@ -63,7 +63,9 @@ class ClassifierService {
         lowerText.contains("pragmatic") ||
         lowerText.contains("judi") ||
         lowerText.contains("bet88") ||
-        lowerText.contains("zeus")) {
+        lowerText.contains("zeus") ||
+        lowerText.contains("maxwin") ||
+        lowerText.contains("jackpot")) {
       print("🚨 JUDI TERDETEKSI (Keyword): $text");
       return true;
     }

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../service/heartbeat_service.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import '../common/services/heartbeat_service.dart';
+import '../common/services/notification_service.dart';
 import 'guardian_home_screen.dart';
 
 class SetupScreen extends StatefulWidget {
@@ -11,7 +14,8 @@ class SetupScreen extends StatefulWidget {
   State<SetupScreen> createState() => _SetupScreenState();
 }
 
-class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStateMixin {
+class _SetupScreenState extends State<SetupScreen>
+    with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _chatIdController = TextEditingController();
@@ -35,17 +39,35 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
     );
 
     _headerFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animController, curve: const Interval(0.0, 0.6, curve: Curves.easeOut)),
+      CurvedAnimation(
+        parent: _animController,
+        curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
+      ),
     );
-    _headerSlideAnimation = Tween<Offset>(begin: const Offset(0, -0.2), end: Offset.zero).animate(
-      CurvedAnimation(parent: _animController, curve: const Interval(0.0, 0.6, curve: Curves.easeOutQuart)),
+    _headerSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, -0.2),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _animController,
+        curve: const Interval(0.0, 0.6, curve: Curves.easeOutQuart),
+      ),
     );
 
     _contentFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animController, curve: const Interval(0.3, 1.0, curve: Curves.easeOut)),
+      CurvedAnimation(
+        parent: _animController,
+        curve: const Interval(0.3, 1.0, curve: Curves.easeOut),
+      ),
     );
-    _contentSlideAnimation = Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(
-      CurvedAnimation(parent: _animController, curve: const Interval(0.3, 1.0, curve: Curves.easeOutQuart)),
+    _contentSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.1),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _animController,
+        curve: const Interval(0.3, 1.0, curve: Curves.easeOutQuart),
+      ),
     );
 
     _animController.forward();
@@ -58,16 +80,7 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
     _chatIdController.dispose();
     super.dispose();
   }
-  
-  // ... (keep _openTelegramBot and _activateProtection but they are not in the diff scope if we target carefully)
-  // To avoid cutting out methods, I will target the Widget build start and replace until the end of content padding
 
-  // Let's target the variable declaration up to the end of the content padding in build method.
-
-  // Wait, I can't target that large of a chunk easily without re-pasting methods. 
-  // I will use two replace calls or a slightly larger block including methods if they are small.
-  // The methods contain ~30 lines. I'll replace from variables to build method start.
-  
   Future<void> _openTelegramBot() async {
     final Uri url = Uri.parse("https://t.me/$botUsername");
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
@@ -80,41 +93,106 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
   }
 
   void _activateProtection() async {
-    if (_formKey.currentState!.validate()) {
-      await HeartbeatService.startProtection(
-        "user_${DateTime.now().millisecondsSinceEpoch}",
+    if (!_formKey.currentState!.validate()) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // LOGIKAMU: Mengambil/Membuat User ID agar tetap sama
+      String userId = prefs.getString('userId') ?? "";
+      if (userId.isEmpty) {
+        userId = "user_${DateTime.now().millisecondsSinceEpoch}";
+        await prefs.setString('userId', userId);
+        print("User baru dibuat: $userId");
+      } else {
+        print("Menggunakan User ID lama: $userId");
+      }
+
+      // Validasi ID Telegram
+      bool isValid = await HeartbeatService.verifyGuard(_chatIdController.text);
+
+      if (!mounted) return;
+      Navigator.pop(context); // Tutup loading dialog
+
+      if (!isValid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.red,
+            content: Text(
+              "ID Telegram tidak ditemukan! Pastikan sudah klik /start di bot.",
+            ),
+          ),
+        );
+        return;
+      }
+
+      // Jalankan proteksi
+      bool success = await HeartbeatService.startProtection(
+        userId,
         _chatIdController.text,
         _nameController.text,
       );
 
-      if (mounted) {
+      if (success && mounted) {
+        await NotificationService().updateToken(userId);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: const Color(0xFF138066),
+            content: const Text("Proteksi Aktif! ID tervalidasi."),
+          ),
+        );
+
+        // NAVIGASI TEMANMU: Ke GuardianHomeScreen dengan animasi
         Navigator.pushReplacement(
           context,
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 800),
-            pageBuilder: (context, animation, secondaryAnimation) => const GuardianHomeScreen(),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-               var fadeAnimation = Tween(begin: 0.0, end: 1.0).animate(CurvedAnimation(parent: animation, curve: Curves.easeIn));
-               var slideAnimation = Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut));
-               return SlideTransition(
-                 position: slideAnimation,
-                 child: FadeTransition(opacity: fadeAnimation, child: child),
-               );
+            pageBuilder:
+                (context, animation, secondaryAnimation) =>
+                    const GuardianHomeScreen(),
+            transitionsBuilder: (
+              context,
+              animation,
+              secondaryAnimation,
+              child,
+            ) {
+              var fadeAnimation = Tween(begin: 0.0, end: 1.0).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeIn),
+              );
+              var slideAnimation = Tween<Offset>(
+                begin: const Offset(0, 0.1),
+                end: Offset.zero,
+              ).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOut),
+              );
+              return SlideTransition(
+                position: slideAnimation,
+                child: FadeTransition(opacity: fadeAnimation, child: child),
+              );
             },
           ),
         );
       }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      print("Terjadi kesalahan: $e");
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC), // Cleaner, Lighter Grey
+      backgroundColor: const Color(0xFFF8FAFC),
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // 1. Animated Header
             SlideTransition(
               position: _headerSlideAnimation,
               child: FadeTransition(
@@ -122,8 +200,6 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
                 child: _buildHeader(),
               ),
             ),
-
-            // 2. Main Content
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
               child: FadeTransition(
@@ -135,21 +211,14 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Guide Section
                         _buildSectionTitle("Langkah 1: Koneksi"),
                         const SizedBox(height: 12),
                         _buildGuideCard(),
-                        
                         const SizedBox(height: 32),
-
-                        // Form Section
                         _buildSectionTitle("Langkah 2: Data Penjamin"),
                         const SizedBox(height: 12),
                         _buildFormCard(),
-
                         const SizedBox(height: 40),
-
-                        // Action Button
                         _buildActivateButton(),
                         const SizedBox(height: 30),
                       ],
@@ -164,11 +233,12 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
     );
   }
 
+  // --- Widget Builders (Header, Cards, Buttons tetap sama) ---
   Widget _buildHeader() {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 10, // Adjusted padding
+        top: MediaQuery.of(context).padding.top + 10,
         bottom: 30,
         left: 24,
         right: 24,
@@ -189,7 +259,6 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
       ),
       child: Stack(
         children: [
-          // Back Button
           Positioned(
             left: 0,
             top: 0,
@@ -200,12 +269,10 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
               constraints: const BoxConstraints(),
             ),
           ),
-          
-          // Centered Content
           Center(
             child: Column(
               children: [
-                const SizedBox(height: 10), // Space for back button row
+                const SizedBox(height: 10),
                 Hero(
                   tag: 'shield_icon',
                   child: Container(
@@ -214,7 +281,11 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
                       color: primaryDark.withOpacity(0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(Icons.shield_rounded, color: primaryDark, size: 40),
+                    child: Icon(
+                      Icons.shield_rounded,
+                      color: primaryDark,
+                      size: 40,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -277,7 +348,6 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
           _buildStepTile("2", "Klik 'START' di chat room"),
           _buildDivider(),
           _buildStepTile("3", "Salin dan tempel ID yang muncul"),
-          
           Padding(
             padding: const EdgeInsets.all(20),
             child: SizedBox(
@@ -288,7 +358,9 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
                   foregroundColor: const Color(0xFF229ED9),
                   side: const BorderSide(color: Color(0xFF229ED9), width: 1),
                   padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                   backgroundColor: const Color(0xFF229ED9).withOpacity(0.05),
                 ),
                 child: Text(
@@ -330,7 +402,7 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
             child: Text(
               text,
               style: GoogleFonts.leagueSpartan(
-                fontSize: 14, 
+                fontSize: 14,
                 color: Colors.black87,
                 fontWeight: FontWeight.w500,
               ),
@@ -342,7 +414,11 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
   }
 
   Widget _buildDivider() {
-    return Divider(height: 1, thickness: 1, color: Colors.grey.withOpacity(0.05));
+    return Divider(
+      height: 1,
+      thickness: 1,
+      color: Colors.grey.withOpacity(0.05),
+    );
   }
 
   Widget _buildFormCard() {
@@ -353,7 +429,7 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: Colors.grey.withOpacity(0.1)),
         boxShadow: [
-           BoxShadow(
+          BoxShadow(
             color: Colors.black.withOpacity(0.02),
             blurRadius: 15,
             offset: const Offset(0, 5),
@@ -362,15 +438,29 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
       ),
       child: Column(
         children: [
-          _buildCleanInput(_nameController, "Nama Panggilan", Icons.person_outline),
+          _buildCleanInput(
+            _nameController,
+            "Nama Panggilan",
+            Icons.person_outline,
+          ),
           const SizedBox(height: 20),
-          _buildCleanInput(_chatIdController, "ID Telegram", Icons.vpn_key_outlined, isNumber: true),
+          _buildCleanInput(
+            _chatIdController,
+            "ID Telegram",
+            Icons.vpn_key_outlined,
+            isNumber: true,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildCleanInput(TextEditingController controller, String label, IconData icon, {bool isNumber = false}) {
+  Widget _buildCleanInput(
+    TextEditingController controller,
+    String label,
+    IconData icon, {
+    bool isNumber = false,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -391,11 +481,17 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
           child: TextFormField(
             controller: controller,
             keyboardType: isNumber ? TextInputType.number : TextInputType.text,
-            style: GoogleFonts.leagueSpartan(fontWeight: FontWeight.w600, color: Colors.black87),
+            style: GoogleFonts.leagueSpartan(
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
             decoration: InputDecoration(
               border: InputBorder.none,
               prefixIcon: Icon(icon, color: Colors.grey[400], size: 20),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
               hintText: isNumber ? "Contoh: 12345678" : "Nama Kamu",
               hintStyle: GoogleFonts.leagueSpartan(color: Colors.grey[300]),
             ),
@@ -430,7 +526,9 @@ class _SetupScreenState extends State<SetupScreen> with SingleTickerProviderStat
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
         ),
         child: Text(
           "Mulai Proteksi",

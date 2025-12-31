@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:gardawara_ai/common/services/notification_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
@@ -45,6 +46,11 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _navigateToNextScreen() async {
     if (_isNavigating) return;
     _isNavigating = true;
+
+    // if (NotificationService.isHandlingNotification) {
+    //   debugPrint("Navigasi dibatalkan karena ada notifikasi.");
+    //   return;
+    // }
 
     final prefs = await SharedPreferences.getInstance();
     bool isSetupDone = prefs.getBool('isProtected') ?? false;
