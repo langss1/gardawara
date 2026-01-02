@@ -11,34 +11,36 @@ import android.text.TextUtils
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import android.util.Log
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.example.gardawara_ai/accessibility"
     private var methodChannel: MethodChannel? = null
 
-    // Receiver untuk menerima teks dari Accessibility Service
-    private val textReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val text = intent.getStringExtra("detected_text")
-            if (text != null) {
-                methodChannel?.invokeMethod("onTextDetected", text)
-            }
-        }
+    companion object {
+        var flutterEngineInstance: FlutterEngine? = null
     }
 
+    // GABUNGKAN SEMUA LOGIKA ENGINE DI SINI
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        
+        // 1. Simpan instance untuk Service
+        flutterEngineInstance = flutterEngine
+
+        // 2. Setup MethodChannel
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
 
+        // 3. Set MethodCallHandler
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "isAccessibilityEnabled" -> {
-                    // Cek apakah service sudah aktif atau belum
-                    val expectedComponentName = ComponentName(context, AccessibilityListener::class.java)
+                    val expectedComponentName = ComponentName(context, GardaAccessibilityService::class.java)
                     val enabledServicesSetting = Settings.Secure.getString(
                         context.contentResolver,
                         Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
                     ) ?: ""
+                    
                     val colonSplitter = TextUtils.SimpleStringSplitter(':')
                     colonSplitter.setString(enabledServicesSetting)
                     var isEnabled = false
@@ -53,18 +55,33 @@ class MainActivity: FlutterActivity() {
                     result.success(isEnabled)
                 }
                 "requestAccessibilityPermission" -> {
-                    // INI YANG KURANG SEBELUMNYA: Buka halaman Settings Aksesibilitas
                     val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                     startActivity(intent)
                     result.success(true)
                 }
+                "triggerNativeBlock" -> {
+                    val blocked = GardaAccessibilityService.instance?.triggerBlocking()
+                    if (blocked == true) {
+                        result.success(true)
+                    } else {
+                        result.error("UNAVAILABLE", "Service Aksesibilitas belum aktif", null)
+                    }
+                }
                 "performGlobalActionBack" -> {
-                    // Kirim perintah ke Accessibility Service
                     val intent = Intent("com.example.gardawara_ai.PERFORM_BACK")
                     context.sendBroadcast(intent)
                     result.success(true)
                 }
                 else -> result.notImplemented()
+            }
+        }
+    }
+
+    private val textReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val text = intent.getStringExtra("detected_text")
+            if (text != null) {
+                methodChannel?.invokeMethod("onTextDetected", text)
             }
         }
     }
@@ -81,6 +98,11 @@ class MainActivity: FlutterActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        unregisterReceiver(textReceiver)
+        try {
+            unregisterReceiver(textReceiver)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Receiver already unregistered")
+        }
+        flutterEngineInstance = null
     }
 }
