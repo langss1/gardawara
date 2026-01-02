@@ -8,11 +8,19 @@ import android.util.Log
 import android.content.Context
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 
 class GardaAccessibilityService : AccessibilityService() {
+
+    companion object {
+        var instance: GardaAccessibilityService? = null
+    }
+
+    private var lastScanTime: Long = 0
+    private val SCAN_INTERVAL = 3000L
 
     private val blacklist = listOf(
         "judi", "slot gacor", "toto", "situs gacor", "bandar judi", "taruhan bola", "judi online",
@@ -20,58 +28,188 @@ class GardaAccessibilityService : AccessibilityService() {
         "casino", "hoki", "zeus", "login slot", "daftar slot", "bet"
     )
 
+    private val judiRegex = Regex(
+        "(?i)\\b(" +
+        "[s5\\$][^a-z0-9]*[l1i|!][^a-z0-9]*[o0][^a-z0-9]*[t7]|" +
+        "j[^a-z0-9]*[u|v][^a-z0-9]*d[^a-z0-9]*[i1!|]|" +
+        "[g96][^a-z0-9]*[a4@][^a-z0-9]*c[^a-z0-9]*[o0][^a-z0-9]*r|" +
+        "m[^a-z0-9]*[a4@][^a-z0-9]*x[^a-z0-9]*w[^a-z0-9]*[i1!|][^a-z0-9]*n|" +
+        "pr[^a-z0-9]*[a4@][^a-z0-9]*g[^a-z0-9]*m[^a-z0-9]*[a4@][^a-z0-9]*t[^a-z0-9]*[i1!|][^a-z0-9]*c|" +
+        "z[^a-z0-9]*[e3][^a-z0-9]*[u|v][^a-z0-9]*[s5\\$]|" +
+        "j[^a-z0-9]*[a4@][^a-z0-9]*ck[^a-z0-9]*p[^a-z0-9]*[o0][^a-z0-9]*t|\\bjp\\b" +
+        ")\\b"
+    )
+
+    // --- LIFECYCLE METHODS ---
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+        instance = this
         createNotificationChannel()
+        Log.d("GardaService", "✅ Service Connected")
     }
+
+    override fun onInterrupt() {
+        Log.d("GardaService", "Service Interrupted")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        instance = null
+    }
+
+    // --- EVENT HANDLER ---
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
-        if (event.packageName != null && event.packageName == packageName) return
+
+        val packageName = event.packageName?.toString() ?: ""
+
+        // 1. FILTER PAKET UTAMA
+        if (packageName == "com.android.systemui" || 
+            packageName == "com.example.gardawara_ai" ||
+            packageName == "com.android.settings") {
+            return
+        }
+
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastScanTime < SCAN_INTERVAL) return
+        lastScanTime = currentTime
 
         val rootNode = rootInActiveWindow ?: return
-        if (checkForRestrictedContent(rootNode)) {
-             // 1. Aggressive Blocking
-             performGlobalAction(GLOBAL_ACTION_BACK)
-             performGlobalAction(GLOBAL_ACTION_HOME) // Force Home
-             
-             // 2. Increment Counter
-             incrementBlockedCount()
 
-             // 3. Show Notification
-             showBlockingNotification()
+        try {
+            // 2. LOGIKA KHUSUS CHROME
+            if (packageName == "com.android.chrome") {
+                if (scanChromeTabContentOnly(rootNode)) {
+                    triggerBlocking()
+                }
+                return 
+            }
 
-             // 4. Toast
-             Toast.makeText(applicationContext, "GardaWara: ⛔ JUDI TERDETEKSI! Akses Diblokir.", Toast.LENGTH_LONG).show()
+            // 3. SCAN UMUM (Untuk aplikasi lain)
+            if (checkForRestrictedContent(rootNode)) {
+                triggerBlocking()
+            }
+        } finally {
+            rootNode.recycle() // Memastikan node utama dibebaskan dari memori
         }
     }
 
-    private fun checkForRestrictedContent(node: AccessibilityNodeInfo): Boolean {
-        if (node.text != null) {
-            val content = node.text.toString().lowercase()
-            for (keyword in blacklist) {
-                if (content.contains(keyword)) {
-                    Log.d("GardaService", "Blocked: $keyword")
-                    return true
-                }
+    // --- SCANNING LOGIC (GENERAL) ---
+
+    private fun checkForRestrictedContent(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+
+        // Filter internal node
+        if (node.packageName == "com.android.systemui" || 
+            node.packageName == "com.example.gardawara_ai") return false
+
+        val textContent = node.text?.toString()?.lowercase() ?: ""
+        val descriptionContent = node.contentDescription?.toString()?.lowercase() ?: ""
+        val combinedContent = "$textContent $descriptionContent".trim()
+
+        if (combinedContent.isNotBlank()) {
+            if (combinedContent.contains("gardawara") || combinedContent.contains("garda wara")) {
+                return false
+            }
+
+            if (checkText(combinedContent)) {
+                Log.d("GardaService", "🚨 TERDETEKSI: $combinedContent")
+                return true
             }
         }
 
         for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            if (child != null) {
-                if (checkForRestrictedContent(child)) {
-                    child.recycle()
-                    return true
-                }
+            val child = node.getChild(i) ?: continue
+            if (checkForRestrictedContent(child)) {
                 child.recycle()
+                return true
             }
+            child.recycle()
         }
         return false
     }
 
+    private fun checkText(text: String): Boolean {
+        val content = text.lowercase()
+        return judiRegex.containsMatchIn(content) || blacklist.any { content.contains(it.lowercase()) }
+    }
+
+    // --- SCANNING LOGIC (CHROME SPECIFIC) ---
+
+    private fun scanChromeTabContentOnly(rootNode: AccessibilityNodeInfo): Boolean {
+        // Cari di Compositor View Holder (Konten Web)
+        val contentNodes = rootNode.findAccessibilityNodeInfosByViewId("com.android.chrome:id/compositor_view_holder")
+        if (contentNodes.isNotEmpty()) {
+            for (node in contentNodes) {
+                val found = recursiveContentCheck(node)
+                node.recycle()
+                if (found) return true
+            }
+        }
+
+        // Fallback: Cari WebView atau RenderWidget
+        return findAndScanWebView(rootNode)
+    }
+
+    private fun findAndScanWebView(node: AccessibilityNodeInfo): Boolean {
+        if (node.className?.contains("RenderWidgetHostView") == true || 
+            node.className?.contains("WebView") == true) {
+            return recursiveContentCheck(node)
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (findAndScanWebView(child)) {
+                child.recycle()
+                return true
+            }
+            child.recycle()
+        }
+        return false
+    }
+
+    private fun recursiveContentCheck(node: AccessibilityNodeInfo): Boolean {
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+        val combined = "$text $desc".trim()
+
+        if (combined.isNotBlank() && checkText(combined)) {
+            Log.d("GardaService", "🚨 JUDI TERDETEKSI DI KONTEN TAB: $combined")
+            return true
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (recursiveContentCheck(child)) {
+                child.recycle()
+                return true
+            }
+            child.recycle()
+        }
+        return false
+    }
+
+    // --- BLOCKING ACTION ---
+
+    fun triggerBlocking(): Boolean {
+        Handler(Looper.getMainLooper()).post {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            Handler(Looper.getMainLooper()).postDelayed({
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            }, 300)
+            
+            incrementBlockedCount()
+            showBlockingNotification()
+            Toast.makeText(applicationContext, "GardaWara: ⛔ JUDI TERDETEKSI!", Toast.LENGTH_LONG).show()
+        }
+        return true
+    }
+
+    // --- UTILITIES ---
+
     private fun incrementBlockedCount() {
-        // Use "FlutterSharedPreferences" to key "flutter.blocked_count" so Flutter app can read it directly via SharedPrefs plugin
         val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
         val currentCount = prefs.getLong("flutter.blocked_count", 0L)
         prefs.edit().putLong("flutter.blocked_count", currentCount + 1).apply()
@@ -81,12 +219,11 @@ class GardaAccessibilityService : AccessibilityService() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notification = NotificationCompat.Builder(this, "GARDA_CHANNEL")
             .setContentTitle("🛡️ GardaWara Beraksi")
-            .setContentText("Situs judi berhasil diblokir. Tetap aman!")
-            .setSmallIcon(android.R.drawable.ic_secure) 
+            .setContentText("Situs judi berhasil diblokir!")
+            .setSmallIcon(android.R.drawable.ic_secure)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
-        
         notificationManager.notify(1001, notification)
     }
 
@@ -97,11 +234,8 @@ class GardaAccessibilityService : AccessibilityService() {
                 "GardaWara Protection",
                 NotificationManager.IMPORTANCE_HIGH
             )
-            channel.description = "Notifications for blocked content"
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
         }
     }
-
-    override fun onInterrupt() {}
 }

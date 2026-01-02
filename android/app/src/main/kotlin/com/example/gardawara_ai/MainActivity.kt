@@ -16,7 +16,6 @@ class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.example.gardawara_ai/accessibility"
     private var methodChannel: MethodChannel? = null
 
-    // Receiver untuk menerima teks dari Accessibility Service
     private val textReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val text = intent.getStringExtra("detected_text")
@@ -33,8 +32,8 @@ class MainActivity: FlutterActivity() {
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "isAccessibilityEnabled" -> {
-                    // Cek apakah service sudah aktif atau belum
-                    val expectedComponentName = ComponentName(context, AccessibilityListener::class.java)
+                    // PASTIKAN: Gunakan GardaAccessibilityService::class.java (sesuai nama file kamu)
+                    val expectedComponentName = ComponentName(context, GardaAccessibilityService::class.java)
                     val enabledServicesSetting = Settings.Secure.getString(
                         context.contentResolver,
                         Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
@@ -53,13 +52,20 @@ class MainActivity: FlutterActivity() {
                     result.success(isEnabled)
                 }
                 "requestAccessibilityPermission" -> {
-                    // INI YANG KURANG SEBELUMNYA: Buka halaman Settings Aksesibilitas
                     val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                     startActivity(intent)
                     result.success(true)
                 }
+                // TAMBAHAN: Panggil fungsi blokir ganas dari Flutter AI
+                "triggerNativeBlock" -> {
+                    val blocked = GardaAccessibilityService.instance?.triggerBlocking()
+                    if (blocked == true) {
+                        result.success(true)
+                    } else {
+                        result.error("UNAVAILABLE", "Service Aksesibilitas belum aktif", null)
+                    }
+                }
                 "performGlobalActionBack" -> {
-                    // Kirim perintah ke Accessibility Service
                     val intent = Intent("com.example.gardawara_ai.PERFORM_BACK")
                     context.sendBroadcast(intent)
                     result.success(true)
