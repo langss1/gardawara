@@ -72,6 +72,11 @@ class MainActivity: FlutterActivity() {
                     context.sendBroadcast(intent)
                     result.success(true)
                 }
+                "setNativeProtection" -> {
+                    val isActive = call.arguments as Boolean
+                    GardaAccessibilityService.isProtectionActive = isActive
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }

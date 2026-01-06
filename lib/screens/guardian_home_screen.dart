@@ -116,6 +116,8 @@ class _GuardianHomeScreenState extends State<GuardianHomeScreen>
       setState(() {
         _appProtectionActive = prefs.getBool('user_protection_active') ?? true;
       });
+      // Sync initial state on load
+      platform.invokeMethod('setNativeProtection', _appProtectionActive);
     }
   }
 
@@ -162,6 +164,11 @@ class _GuardianHomeScreenState extends State<GuardianHomeScreen>
   }
 
   void _handleStatusChange() {
+    // SYNC STATE TO NATIVE
+    platform.invokeMethod('setNativeProtection', _appProtectionActive).catchError((e) {
+      debugPrint("Failed to sync protection state: $e");
+    });
+
     if (_isProtected) {
       if (_startTime == null) {
         _startTime = DateTime.now();

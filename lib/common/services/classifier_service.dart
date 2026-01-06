@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
 class ClassifierService {
-  static const platform = MethodChannel('com.example.gardawara/blocker');
+  static const platform = MethodChannel(
+    'com.example.gardawara_ai/accessibility',
+  );
   Interpreter? _interpreter;
   Map<String, int> _vocab = {};
   final int _sentenceLength = 30;
