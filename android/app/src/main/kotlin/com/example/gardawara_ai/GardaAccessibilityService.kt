@@ -18,217 +18,183 @@ class GardaAccessibilityService : AccessibilityService() {
 
     companion object {
         var instance: GardaAccessibilityService? = null
+        var isProtectionActive: Boolean = true
+        
+        private val JUDI_REGEX = Regex(
+            "(?i)\\b(" +
+            "[s5\\$][\\W_]{0,2}[l1i|!][\\W_]{0,2}[o0][\\W_]{0,2}[t7]|" +
+            "j[\\W_]{0,2}[u|v][\\W_]{0,2}d[\\W_]{0,2}[i1!|]|" +
+            "[g96][\\W_]{0,2}[a4@][\\W_]{0,2}c[\\W_]{0,2}[o0][\\W_]{0,2}r|" +
+            "m[\\W_]{0,2}[a4@][\\W_]{0,2}x[\\W_]{0,2}w[\\W_]{0,2}[i1!|][\\W_]{0,2}[n]|" +
+            "pr[\\W_]{0,2}[a4@][\\W_]{0,2}g[\\W_]{0,2}m[\\W_]{0,2}[a4@][\\W_]{0,2}t[\\W_]{0,2}[i1!|][\\W_]{0,2}c|" +
+            "z[\\W_]{0,2}[e3][\\W_]{0,2}[u|v][\\W_]{0,2}[s5\\$]|" +
+            "j[\\W_]{0,2}[a4@][\\W_]{0,2}ck[\\W_]{0,2}p[\\W_]{0,2}[o0][\\W_]{0,2}t|\\bjp\\b" +
+            ")\\b"
+        )
     }
 
     private var lastScanTime: Long = 0
-    private val SCAN_INTERVAL = 3000L
+    private val SCAN_INTERVAL = 2000L 
+    private val debounceHandler = Handler(Looper.getMainLooper())
+    private var pendingBlockRunnable: Runnable? = null
+    private var currentActivePackage: String = "" // Pastikan CamelCase sesuai deklarasi
+    
+    private var chromeAppLaunchTime: Long = 0
+    private val CHROME_SAFETY_DELAY = 3000L 
+
+    private val excludedApps = setOf(
+        "com.whatsapp", "com.whatsapp.w4b", "com.facebook.katana",
+        "org.telegram.messenger", "com.instagram.android", "com.android.systemui",
+        "com.example.gardawara_ai", "com.android.settings",
+        "com.google.android.inputmethod.latin", "com.google.android.googlequicksearchbox"
+    )
 
     private val blacklist = listOf(
         "judi", "slot gacor", "toto", "situs gacor", "bandar judi", "taruhan bola", "judi online",
-        "888slot", "slot88", "maxwin", "rtp", "pragmatic", "deposit pulsa", "gacor hari ini", 
-        "casino", "hoki", "zeus", "login slot", "daftar slot", "bet"
+        "888slot", "slot88", "maxwin", "rtp", "pragmatic", "deposit pulsa", "gacor hari ini",
+        "casino", "hoki", "zeus", "login slot", "daftar slot"
+    )
+    
+    private val combinedBlacklistRegex = Regex("(?i)\\b(${blacklist.joinToString("|") { Regex.escape(it) }})\\b")
+
+    private val placeholderTexts = setOf(
+        "search google", "type url", "telusuri", "ketik alamat", "cari atau", "google",
+        "ai mode", "incognito", "daytrans", "gemini", "beranda", "tab baru", 
+        "mulai penelusuran suara", "start voice search", "search or type web address",
+        "suggested items", "trending searches", "refine:", "penelusuran populer",
+        "saran pencarian", "item yang disarankan"
     )
 
-    private val judiRegex = Regex(
-        "(?i)\\b(" +
-        "[s5\\$][^a-z0-9]*[l1i|!][^a-z0-9]*[o0][^a-z0-9]*[t7]|" +
-        "j[^a-z0-9]*[u|v][^a-z0-9]*d[^a-z0-9]*[i1!|]|" +
-        "[g96][^a-z0-9]*[a4@][^a-z0-9]*c[^a-z0-9]*[o0][^a-z0-9]*r|" +
-        "m[^a-z0-9]*[a4@][^a-z0-9]*x[^a-z0-9]*w[^a-z0-9]*[i1!|][^a-z0-9]*n|" +
-        "pr[^a-z0-9]*[a4@][^a-z0-9]*g[^a-z0-9]*m[^a-z0-9]*[a4@][^a-z0-9]*t[^a-z0-9]*[i1!|][^a-z0-9]*c|" +
-        "z[^a-z0-9]*[e3][^a-z0-9]*[u|v][^a-z0-9]*[s5\\$]|" +
-        "j[^a-z0-9]*[a4@][^a-z0-9]*ck[^a-z0-9]*p[^a-z0-9]*[o0][^a-z0-9]*t|\\bjp\\b" +
-        ")\\b"
+    private val ignoredViewIds = setOf(
+        "com.android.systemui", "com.google.android.inputmethod.latin",
+        "navigationBarBackground", "statusBarBackground",
+        "com.android.chrome:id/tile_view_title",
+        "com.android.chrome:id/content_suggestions",
+        "com.android.chrome:id/search_box_text",
+        "com.android.chrome:id/url_bar",
+        "com.android.chrome:id/omnibox_results_container",
+        "com.android.chrome:id/line_1",
+        "com.android.chrome:id/line_2"
     )
-
-    // --- LIFECYCLE METHODS ---
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         createNotificationChannel()
-        Log.d("GardaService", "✅ Service Connected")
     }
 
-    override fun onInterrupt() {
-        Log.d("GardaService", "Service Interrupted")
-    }
+    override fun onInterrupt() {}
 
     override fun onDestroy() {
         super.onDestroy()
         instance = null
     }
 
-    // --- EVENT HANDLER ---
-
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null) return
+        if (event == null || !isProtectionActive) return
 
-        val packageName = event.packageName?.toString() ?: ""
+        val eventPackageName = event.packageName?.toString() ?: ""
 
-        // 1. FILTER PAKET UTAMA
-        if (packageName == "com.android.systemui" || 
-            packageName == "com.example.gardawara_ai" ||
-            packageName == "com.android.settings") {
-            return
+        // 1. Update status aplikasi yang sedang aktif
+        if (eventPackageName.isNotEmpty() && eventPackageName != currentActivePackage) {
+            if (eventPackageName == "com.android.chrome") {
+                chromeAppLaunchTime = System.currentTimeMillis()
+            }
+            currentActivePackage = eventPackageName
         }
+
+        // 2. Cek Excluded Apps dari event package
+        if (excludedApps.contains(currentActivePackage)) return
 
         val currentTime = System.currentTimeMillis()
         if (currentTime - lastScanTime < SCAN_INTERVAL) return
-        lastScanTime = currentTime
 
         val rootNode = rootInActiveWindow ?: return
-
+        
         try {
-            // Ambil semua teks untuk dikirim ke Flutter (History/Log)
-            val capturedText = getAllText(rootNode)
-            if (capturedText.isNotBlank()) {
-                sendTextToFlutter(capturedText)
+            // 3. Verifikasi ulang package name dari rootNode untuk memastikan keakuratan
+            val actualPackage = rootNode.packageName?.toString() ?: ""
+            if (excludedApps.contains(actualPackage)) return
+
+            // 4. Implementasi Safety Delay khusus Chrome
+            if (actualPackage == "com.android.chrome") {
+                if (currentTime - chromeAppLaunchTime < CHROME_SAFETY_DELAY) {
+                    return 
+                }
             }
 
-            // 2. LOGIKA KHUSUS CHROME
-            if (packageName == "com.android.chrome") {
-                if (scanChromeTabContentOnly(rootNode)) {
+            val sb = StringBuilder()
+            extractTextRecursive(rootNode, sb)
+            val capturedText = sb.toString()
+
+            if (capturedText.isNotBlank()) {
+                lastScanTime = currentTime
+                sendTextToFlutter(capturedText)
+
+                if (checkText(capturedText)) {
                     triggerBlocking()
                 }
-                return 
-            }
-
-            // 3. SCAN UMUM (Untuk aplikasi lain)
-            if (checkForRestrictedContent(rootNode)) {
-                triggerBlocking()
             }
         } finally {
             rootNode.recycle()
         }
     }
 
-    // --- SCANNING LOGIC (GENERAL) ---
-
-    private fun checkForRestrictedContent(node: AccessibilityNodeInfo?): Boolean {
-        if (node == null) return false
-
-        if (node.packageName == "com.android.systemui" || 
-            node.packageName == "com.example.gardawara_ai") return false
-
-        val textContent = node.text?.toString()?.lowercase() ?: ""
-        val descriptionContent = node.contentDescription?.toString()?.lowercase() ?: ""
-        val combinedContent = "$textContent $descriptionContent".trim()
-
-        if (combinedContent.isNotBlank()) {
-            if (combinedContent.contains("gardawara") || combinedContent.contains("garda wara")) {
-                return false
-            }
-
-            if (checkText(combinedContent)) {
-                Log.d("GardaService", "🚨 TERDETEKSI: $combinedContent")
-                return true
-            }
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            if (checkForRestrictedContent(child)) {
-                child.recycle()
-                return true
-            }
-            child.recycle()
-        }
-        return false
-    }
-
     private fun checkText(text: String): Boolean {
-        val content = text.lowercase()
-        return judiRegex.containsMatchIn(content) || blacklist.any { content.contains(it.lowercase()) }
+        return JUDI_REGEX.containsMatchIn(text) || combinedBlacklistRegex.containsMatchIn(text)
     }
-
-    // --- SCANNING LOGIC (CHROME SPECIFIC) ---
-
-    private fun scanChromeTabContentOnly(rootNode: AccessibilityNodeInfo): Boolean {
-        val contentNodes = rootNode.findAccessibilityNodeInfosByViewId("com.android.chrome:id/compositor_view_holder")
-        if (contentNodes.isNotEmpty()) {
-            for (node in contentNodes) {
-                val found = recursiveContentCheck(node)
-                node.recycle()
-                if (found) return true
-            }
-        }
-        return findAndScanWebView(rootNode)
-    }
-
-    private fun findAndScanWebView(node: AccessibilityNodeInfo): Boolean {
-        if (node.className?.contains("RenderWidgetHostView") == true || 
-            node.className?.contains("WebView") == true) {
-            return recursiveContentCheck(node)
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            if (findAndScanWebView(child)) {
-                child.recycle()
-                return true
-            }
-            child.recycle()
-        }
-        return false
-    }
-
-    private fun recursiveContentCheck(node: AccessibilityNodeInfo): Boolean {
-        val text = node.text?.toString()?.lowercase() ?: ""
-        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-        val combined = "$text $desc".trim()
-
-        if (combined.isNotBlank() && checkText(combined)) {
-            Log.d("GardaService", "🚨 JUDI TERDETEKSI DI KONTEN TAB: $combined")
-            return true
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            if (recursiveContentCheck(child)) {
-                child.recycle()
-                return true
-            }
-            child.recycle()
-        }
-        return false
-    }
-
-    // --- BLOCKING ACTION ---
 
     fun triggerBlocking(): Boolean {
+        cancelPendingBlock()
         Handler(Looper.getMainLooper()).post {
             performGlobalAction(GLOBAL_ACTION_BACK)
             Handler(Looper.getMainLooper()).postDelayed({
                 performGlobalAction(GLOBAL_ACTION_HOME)
             }, 300)
-            
             incrementBlockedCount()
             showBlockingNotification()
-            Toast.makeText(applicationContext, "GardaWara: ⛔ JUDI TERDETEKSI!", Toast.LENGTH_LONG).show()
+            Toast.makeText(applicationContext, "GardaWara: ⛔ KONTEN JUDI DIBLOKIR!", Toast.LENGTH_LONG).show()
         }
         return true
     }
 
-    // --- UTILITIES ---
+    private fun extractTextRecursive(node: AccessibilityNodeInfo?, sb: StringBuilder) {
+        if (node == null) return
 
-    private fun getAllText(node: AccessibilityNodeInfo?): String {
-        if (node == null) return ""
-        val sb = StringBuilder()
-        val text = node.text?.toString() ?: ""
-        if (text.isNotBlank()) sb.append(text).append(" ")
+        val viewId = node.viewIdResourceName ?: ""
+        if (ignoredViewIds.any { viewId.contains(it) }) return
+
+        val rawText = node.text?.toString() ?: ""
+        val contentDesc = node.contentDescription?.toString() ?: ""
+        val combinedRaw = "$rawText $contentDesc".lowercase()
+
+        val isSuggestion = combinedRaw.contains("suggested items") || 
+                           combinedRaw.contains("refine:") || 
+                           combinedRaw.contains("penelusuran populer")
+        
+        val isPlaceholder = placeholderTexts.any { combinedRaw.contains(it) }
+
+        if (!isPlaceholder && !isSuggestion) {
+            if (rawText.isNotBlank()) sb.append(rawText).append(" ")
+            if (contentDesc.isNotBlank()) sb.append(contentDesc).append(" ")
+        }
 
         for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            sb.append(getAllText(child))
-            child.recycle()
+            val child = node.getChild(i)
+            extractTextRecursive(child, sb)
+            child?.recycle()
         }
-        return sb.toString().trim()
+    }
+
+    private fun cancelPendingBlock() {
+        pendingBlockRunnable?.let { 
+            debounceHandler.removeCallbacks(it)
+            pendingBlockRunnable = null
+        }
     }
 
     private fun incrementBlockedCount() {
         val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        // Konsistensi nama key: flutter.blocked_count
         val currentCount = prefs.getLong("flutter.blocked_count", 0L)
         prefs.edit().putLong("flutter.blocked_count", currentCount + 1).apply()
     }
@@ -237,7 +203,7 @@ class GardaAccessibilityService : AccessibilityService() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notification = NotificationCompat.Builder(this, "GARDA_CHANNEL")
             .setContentTitle("🛡️ GardaWara Beraksi")
-            .setContentText("Situs judi berhasil diblokir!")
+            .setContentText("Konten judi berhasil diblokir!")
             .setSmallIcon(android.R.drawable.ic_secure)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
@@ -246,12 +212,9 @@ class GardaAccessibilityService : AccessibilityService() {
     }
 
     private fun createNotificationChannel() {
-        // Perbaikan: Pastikan urutannya Build.VERSION.SDK_INT dulu baru VERSION_CODES
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                "GARDA_CHANNEL",
-                "GardaWara Protection",
-                NotificationManager.IMPORTANCE_HIGH
+                "GARDA_CHANNEL", "GardaWara Protection", NotificationManager.IMPORTANCE_HIGH
             )
             val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)
@@ -261,9 +224,7 @@ class GardaAccessibilityService : AccessibilityService() {
     private fun sendTextToFlutter(text: String) {
         Handler(Looper.getMainLooper()).post {
             try {
-                // Perbaikan: Memanggil nama variabel yang kita buat di MainActivity tadi
-                val messenger = MainActivity.flutterEngineInstance?.dartExecutor?.binaryMessenger
-                if (messenger != null) {
+                MainActivity.flutterEngineInstance?.dartExecutor?.binaryMessenger?.let { messenger ->
                     val channel = MethodChannel(messenger, "com.example.gardawara_ai/accessibility")
                     channel.invokeMethod("onTextDetected", text)
                 }
